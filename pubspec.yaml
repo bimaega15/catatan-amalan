@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.9.0 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -30,11 +30,32 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.2
+
+  # Penyimpanan lokal. Android dan iOS memakai plugin sqflite; desktop
+  # memakai SQLite lewat FFI.
+  sqflite: ^2.4.2+1
+  # Sengaja ditahan sebelum 2.4: versi itu menarik sqlite3 3.x yang membangun
+  # SQLite lewat hooks (native assets), dan hooks belum dijalankan oleh
+  # `flutter build windows`, sehingga aplikasi gagal memuat sqlite3.dll saat
+  # dijalankan. Trio di bawah membundel DLL-nya lewat plugin, tanpa flag
+  # percobaan apa pun.
+  sqflite_common_ffi: ">=2.3.0 <2.4.0"
+  sqlite3: ^2.4.0
+  sqlite3_flutter_libs: ^0.5.24
+
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  provider: ^6.1.5+1
+  fl_chart: ^1.2.0
+  # Dikunci pada 0.20.x agar cocok dengan yang dipakai flutter_localizations.
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:
