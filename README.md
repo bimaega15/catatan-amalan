@@ -12,7 +12,7 @@ SQLite; tidak ada akun, server, atau sinkronisasi.
   halaman. Capaian sebagian ikut dihitung.
 - **Amalan buatan sendiri**: nama, kategori, waktu, target, satuan, ikon, jam
   pengingat, dan catatan. Urutannya bisa digeser sesuka hati.
-- **Jadwal sholat otomatis** dari koordinat perangkat. Lima sholat fardhu
+- **Jadwal sholat otomatis** menurut wilayah pengguna. Lima sholat fardhu
   memakai jam yang dihitung ulang tiap hari; amalan lain boleh memakai jam
   tetap atau tanpa jam sama sekali.
 - **Pengingat** berupa notifikasi lokal yang berbunyi tiga bip pendek lalu
@@ -60,12 +60,32 @@ runtutan (*streak*) bila capaiannya minimal 80%.
 
 ### Jadwal sholat
 
-Waktu sholat dihitung di perangkat dengan paket `adhan` dari koordinat yang
-diambil `geolocator`; koordinatnya disimpan lokal dan tidak dikirim ke mana
-pun. Metode perhitungan (bawaan: Kemenag/MWL) dan mazhab penentu Ashar bisa
-diganti di Pengaturan. Jadwal sengaja tidak disimpan ke database — hitungannya
-murni dan cepat, jadi lebih baik dihitung ulang daripada menyimpan data yang
-basi begitu pengguna berpindah kota.
+Ada tiga cara menentukan wilayah acuan, dari yang paling ringan:
+
+1. **Tebakan zona waktu.** Saat pertama dibuka, aplikasi memilih Jakarta,
+   Makassar, atau Jayapura menurut selisih zona waktu perangkat — supaya jam
+   sholat langsung tampil tanpa pengguna melakukan apa pun. Statusnya ditandai
+   jujur sebagai perkiraan, lengkap dengan ajakan memilih kota.
+2. **Pilih kota** dari daftar 74 kota yang mencakup seluruh 38 provinsi
+   (`lib/data/wilayah_indonesia.dart`). Tanpa GPS, tanpa internet.
+3. **Lokasi perangkat** lewat `geolocator`, untuk yang ingin persis.
+
+Jamnya sendiri berasal dari dua sumber:
+
+- **Daring:** jadwal resmi diambil dari API Aladhan memakai metode 20
+  (Kementerian Agama RI), sebulan penuh sekali permintaan, lalu disimpan ke
+  tabel `jadwal_sholat`. Cukup dua permintaan (bulan ini dan bulan depan)
+  untuk menutupi seluruh penjadwalan pengingat.
+- **Luring:** dihitung di perangkat dengan paket `adhan`. Sudut Subuh dan Isya
+  ditulis eksplisit di `MetodeSholat`, bukan menumpang nama metode bawaan
+  paket, karena Kemenag (Subuh 20°, Isya 18°) tidak tersedia di sana. Ada tes
+  yang membandingkan hasil hitungan ini dengan angka resmi Aladhan dan gagal
+  bila selisihnya lebih dari dua menit.
+
+Koordinat tidak pernah dikirim ke mana pun selain ke API jadwal, dan itu pun
+bisa dimatikan lewat sakelar "Ambil jadwal resmi saat daring". Baris cache
+diberi label koordinat, metode, dan mazhab, jadi begitu salah satunya berubah
+jadwal lama otomatis tidak terpakai.
 
 ### Pengingat
 

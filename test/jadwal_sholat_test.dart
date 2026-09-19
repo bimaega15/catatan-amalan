@@ -19,6 +19,52 @@ Amalan _amalan({SholatWajib? sholat, int? menitPengingat}) => Amalan(
 void main() {
   final tanggal = DateTime(2026, 9, 19);
 
+  test('metode Kemenag cocok dengan jadwal resmi Jakarta', () {
+    // Angka pembanding diambil dari API Aladhan method 20 (Kementerian Agama
+    // RI) untuk Jakarta, 19 September 2026. Kalau perhitungan di perangkat
+    // melenceng dari sumber resmi, tes ini yang lebih dulu berteriak.
+    final jadwal = JadwalSholatService.hitung(_jakarta, tanggal)!;
+
+    const resmi = {
+      SholatWajib.subuh: '04:27',
+      SholatWajib.dzuhur: '11:46',
+      SholatWajib.ashar: '14:58',
+      SholatWajib.maghrib: '17:49',
+      SholatWajib.isya: '18:58',
+    };
+
+    resmi.forEach((sholat, jam) {
+      final bagian = jam.split(':');
+      final diharapkan = DateTime(
+        tanggal.year,
+        tanggal.month,
+        tanggal.day,
+        int.parse(bagian[0]),
+        int.parse(bagian[1]),
+      );
+      final selisih = jadwal[sholat]!.difference(diharapkan).inMinutes.abs();
+      expect(
+        selisih,
+        lessThanOrEqualTo(2),
+        reason: '${sholat.label}: dihitung ${jadwal[sholat]}, resmi $jam',
+      );
+    });
+  });
+
+  test('Kemenag memakai sudut Subuh yang lebih besar daripada MWL', () {
+    final kemenag = JadwalSholatService.hitung(_jakarta, tanggal)!;
+    final mwl = JadwalSholatService.hitung(
+      _jakarta.copyWith(metode: MetodeSholat.mwl),
+      tanggal,
+    )!;
+
+    // Sudut 20° membuat Subuh lebih awal daripada 18°.
+    expect(
+      kemenag[SholatWajib.subuh]!.isBefore(mwl[SholatWajib.subuh]!),
+      isTrue,
+    );
+  });
+
   test('tanpa lokasi jadwalnya kosong', () {
     expect(JadwalSholatService.hitung(const Pengaturan(), tanggal), isNull);
   });
@@ -67,7 +113,10 @@ void main() {
   });
 
   test('metode perhitungan berbeda menggeser waktu Subuh', () {
-    final mwl = JadwalSholatService.hitung(_jakarta, tanggal)!;
+    final mwl = JadwalSholatService.hitung(
+      _jakarta.copyWith(metode: MetodeSholat.mwl),
+      tanggal,
+    )!;
     final ummAlQura = JadwalSholatService.hitung(
       _jakarta.copyWith(metode: MetodeSholat.ummAlQura),
       tanggal,

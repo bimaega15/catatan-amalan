@@ -9,7 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'amalan_bawaan.dart';
 
 const String _namaBerkasDb = 'catatan_amalan.db';
-const int _versiDb = 2;
+const int _versiDb = 3;
 
 /// Pembuka database SQLite lokal. Seluruh data aplikasi tersimpan di perangkat,
 /// tidak ada sinkronisasi ke mana pun.
@@ -142,7 +142,23 @@ class AppDatabase {
         nilai TEXT NOT NULL
       )
     ''');
+
+    await db.execute(_buatTabelJadwal);
   }
+
+  /// Simpanan jadwal sholat resmi hasil unduhan, agar tetap ada saat luring.
+  static const _buatTabelJadwal = '''
+    CREATE TABLE IF NOT EXISTS jadwal_sholat (
+      lokasi TEXT NOT NULL,
+      tanggal TEXT NOT NULL,
+      subuh TEXT,
+      dzuhur TEXT,
+      ashar TEXT,
+      maghrib TEXT,
+      isya TEXT,
+      PRIMARY KEY (lokasi, tanggal)
+    )
+  ''';
 
   static Future<void> _isiAmalanBawaan(Database db) async {
     final batch = db.batch();
@@ -169,6 +185,11 @@ class AppDatabase {
         )
       ''');
       await _tautkanSholatBawaan(db);
+    }
+
+    // v3: simpanan jadwal sholat resmi hasil unduhan.
+    if (versiLama < 3) {
+      await db.execute(_buatTabelJadwal);
     }
   }
 

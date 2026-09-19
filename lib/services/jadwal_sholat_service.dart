@@ -9,10 +9,17 @@ import '../data/models/pengaturan.dart';
 /// Waktu lima sholat fardhu untuk satu hari di satu lokasi.
 @immutable
 class JadwalSholat {
-  const JadwalSholat({required this.tanggal, required this.waktu});
+  const JadwalSholat({
+    required this.tanggal,
+    required this.waktu,
+    this.resmi = false,
+  });
 
   final DateTime tanggal;
   final Map<SholatWajib, DateTime> waktu;
+
+  /// Diambil dari API resmi, bukan dihitung di perangkat.
+  final bool resmi;
 
   DateTime? operator [](SholatWajib sholat) => waktu[sholat];
 
@@ -69,15 +76,15 @@ class JadwalSholatService {
     final bujur = pengaturan.bujur;
     if (lintang == null || bujur == null) return null;
 
-    final parameter = CalculationMethod.values
-        .firstWhere(
-          (m) => m.name == pengaturan.metode.kunci,
-          orElse: () => CalculationMethod.muslim_world_league,
-        )
-        .getParameters();
-    parameter.madhab = pengaturan.mazhab == MazhabAshar.hanafi
-        ? Madhab.hanafi
-        : Madhab.shafi;
+    final metode = pengaturan.metode;
+    final parameter = CalculationParameters(
+      fajrAngle: metode.sudutSubuh,
+      ishaAngle: metode.sudutIsya,
+      ishaInterval: metode.jedaIsyaMenit,
+      madhab: pengaturan.mazhab == MazhabAshar.hanafi
+          ? Madhab.hanafi
+          : Madhab.shafi,
+    );
 
     final hari = tglSaja(tanggal);
     final waktu = PrayerTimes(
@@ -95,6 +102,7 @@ class JadwalSholatService {
         SholatWajib.maghrib: waktu.maghrib,
         SholatWajib.isya: waktu.isha,
       },
+      resmi: false,
     );
   }
 

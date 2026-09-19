@@ -9,9 +9,12 @@ import '../data/cadangan_repository.dart';
 import '../data/models/amalan.dart';
 import '../data/models/pengaturan.dart';
 import '../data/models/statistik.dart';
+import '../data/jadwal_cache_repository.dart';
 import '../data/pengaturan_repository.dart';
 import '../data/statistik_service.dart';
+import '../data/wilayah_indonesia.dart';
 import '../services/ekspor_excel_service.dart';
+import '../services/jadwal_sholat_api.dart';
 import '../services/jadwal_sholat_service.dart';
 import '../services/notifikasi_service.dart';
 
@@ -38,15 +41,24 @@ class AmalanController extends ChangeNotifier {
     this._repo, {
     required PengaturanRepository pengaturanRepo,
     required CadanganRepository cadanganRepo,
+    required JadwalCacheRepository jadwalRepo,
     NotifikasiService? notifikasi,
+    Duration? zonaPerangkat,
   }) : _pengaturanRepo = pengaturanRepo,
        _cadanganRepo = cadanganRepo,
-       _notifikasi = notifikasi ?? NotifikasiService();
+       _jadwalRepo = jadwalRepo,
+       _notifikasi = notifikasi ?? NotifikasiService(),
+       _zonaPerangkat = zonaPerangkat ?? DateTime.now().timeZoneOffset;
 
   final AmalanRepository _repo;
   final PengaturanRepository _pengaturanRepo;
   final CadanganRepository _cadanganRepo;
+  final JadwalCacheRepository _jadwalRepo;
   final NotifikasiService _notifikasi;
+
+  /// Selisih zona waktu perangkat, dipakai menebak wilayah awal. Bisa disuntik
+  /// agar pengujian tidak bergantung pada jam mesin penguji.
+  final Duration _zonaPerangkat;
 
   bool _memuat = true;
   Object? _galat;
@@ -57,6 +69,9 @@ class AmalanController extends ChangeNotifier {
   DateTime _bulanRiwayat = DateTime(hariIni().year, hariIni().month);
   Pengaturan _pengaturan = const Pengaturan();
   bool _sedangAmbilLokasi = false;
+  JadwalBulanan _jadwalResmi = {};
+  bool _sedangSegarkanJadwal = false;
+  String? _galatJadwal;
 
   bool get memuat => _memuat;
   Object? get galat => _galat;
@@ -66,6 +81,16 @@ class AmalanController extends ChangeNotifier {
   DateTime get bulanRiwayat => _bulanRiwayat;
   Pengaturan get pengaturan => _pengaturan;
   bool get sedangAmbilLokasi => _sedangAmbilLokasi;
+  bool get sedangSegarkanJadwal => _sedangSegarkanJadwal;
+
+  /// Pesan kegagalan pengambilan jadwal daring terakhir, bila ada. Sifatnya
+  /// hanya pemberitahuan: jadwal tetap tampil dari hasil hitungan perangkat.
+  String? get galatJadwal => _galatJadwal;
+
+  /// Jadwal hari ini berasal dari API resmi, bukan hitungan perangkat.
+  bool get jadwalResmiTersedia =>
+      _jadwalResmi.containsKey(kunciTanggal(hariIni()));
+
   bool get notifikasiDidukung => NotifikasiService.didukung;
 
   List<Amalan> get amalanAktif =>
@@ -88,11 +113,32 @@ class AmalanController extends ChangeNotifier {
     try {
       final amalan = await _repo.muatAmalan();
       final catatan = await _repo.muatSemuaCatatan();
-      final pengaturan = await _pengaturanRepo.muat();
+      var pengaturan = await _pengaturanRepo.muat();
+      // Tanpa lokasi, jadwal sholat tidak bisa dihitung sama sekali dan kartu
+      // amalan tampil tanpa jam. Ditebak dulu dari zona waktu perangkat supaya
+      // ada isinya sejak pertama dibuka; pengguna tetap diminta memilih
+      // wilayahnya lewat ajakan di beranda.
+      if (!pengaturan.adaLokasi) {
+        final tebakan = tebakWilayahDariZona(_zonaPerangkat);
+        if (tebakan != null) {
+          pengaturan = pengaturan.copyWith(
+            lintang: tebakan.lintang,
+            bujur: tebakan.bujur,
+            labelLokasi: tebakan.label,
+            sumberLokasi: SumberLokasi.perkiraan,
+          );
+          await _pengaturanRepo.simpan(pengaturan);
+        }
+      }
+
       _amalan = amalan;
       _catatan = catatan;
       _pengaturan = pengaturan;
+      _jadwalResmi = await _jadwalRepo.muat(
+        JadwalCacheRepository.kunciLokasi(pengaturan),
+      );
       unawaited(_siapkanPengingat());
+      unawaited(segarkanJadwalOnline());
     } catch (e) {
       _galat = e;
     } finally {
@@ -291,15 +337,25 @@ class AmalanController extends ChangeNotifier {
 
   // ------------------------------------------------ jadwal sholat & lokasi
 
-  /// Ada amalan yang menunggu jadwal sholat, tetapi lokasinya belum disetel —
-  /// jam pengingatnya belum bisa dihitung.
+  /// Ada amalan yang bergantung jadwal sholat, sementara wilayahnya belum
+  /// dipilih sendiri — entah kosong atau masih tebakan dari zona waktu.
   bool get butuhLokasi =>
-      !_pengaturan.adaLokasi &&
+      (!_pengaturan.adaLokasi || _pengaturan.lokasiMasihPerkiraan) &&
       _amalan.any((a) => !a.diarsipkan && a.sholat != null);
 
   /// Jadwal sholat untuk [tanggal]; null bila lokasi belum pernah diambil.
-  JadwalSholat? jadwalSholat([DateTime? tanggal]) =>
-      JadwalSholatService.hitung(_pengaturan, tanggal ?? _tanggalAktif);
+  ///
+  /// Mendahulukan jadwal resmi hasil unduhan; kalau harinya belum terunduh
+  /// (atau fiturnya dimatikan), dipakai hitungan di perangkat yang selisihnya
+  /// hanya hitungan menit.
+  JadwalSholat? jadwalSholat([DateTime? tanggal]) {
+    final hari = tglSaja(tanggal ?? _tanggalAktif);
+    final resmi = _jadwalResmi[kunciTanggal(hari)];
+    if (resmi != null) {
+      return JadwalSholat(tanggal: hari, waktu: resmi, resmi: true);
+    }
+    return JadwalSholatService.hitung(_pengaturan, hari);
+  }
 
   /// Jam pengingat efektif sebuah amalan pada [tanggal].
   DateTime? waktuPengingat(Amalan amalan, [DateTime? tanggal]) {
@@ -328,6 +384,7 @@ class AmalanController extends ChangeNotifier {
             posisi.latitude,
             posisi.longitude,
           ),
+          sumberLokasi: SumberLokasi.gps,
           lokasiDiperbaruiPada: DateTime.now(),
         ),
       );
@@ -336,6 +393,20 @@ class AmalanController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Memakai wilayah pilihan pengguna sebagai acuan jadwal sholat.
+  Future<void> pilihWilayah(Wilayah wilayah) => _simpanPengaturan(
+    _pengaturan.copyWith(
+      lintang: wilayah.lintang,
+      bujur: wilayah.bujur,
+      labelLokasi: wilayah.label,
+      sumberLokasi: SumberLokasi.wilayah,
+      lokasiDiperbaruiPada: DateTime.now(),
+    ),
+  );
+
+  Future<void> setJadwalOnline(bool aktif) =>
+      _simpanPengaturan(_pengaturan.copyWith(pakaiJadwalOnline: aktif));
 
   Future<void> hapusLokasi() =>
       _simpanPengaturan(_pengaturan.copyWith(hapusLokasi: true));
@@ -358,10 +429,65 @@ class AmalanController extends ChangeNotifier {
   Future<void> ujiBunyiNotifikasi() => _notifikasi.ujiBunyi();
 
   Future<void> _simpanPengaturan(Pengaturan baru) async {
+    final lokasiBerubah =
+        JadwalCacheRepository.kunciLokasi(baru) !=
+        JadwalCacheRepository.kunciLokasi(_pengaturan);
+
     _pengaturan = baru;
+    // Jadwal unduhan terikat pada koordinat, metode, dan mazhab tertentu, jadi
+    // begitu salah satunya berubah isinya tidak boleh dipakai lagi.
+    if (lokasiBerubah) _jadwalResmi = {};
     notifyListeners();
+
     await _pengaturanRepo.simpan(baru);
     await _jadwalkanUlang();
+    if (lokasiBerubah) unawaited(segarkanJadwalOnline());
+  }
+
+  /// Mengunduh jadwal resmi bulan ini dan bulan depan.
+  ///
+  /// Dua bulan sekaligus supaya pengingat tujuh hari ke depan tetap dapat
+  /// jadwal walau hari ini jatuh di akhir bulan. Kegagalan tidak dianggap
+  /// fatal: aplikasi kembali memakai hitungan di perangkat.
+  Future<void> segarkanJadwalOnline({bool paksa = false}) async {
+    if (_sedangSegarkanJadwal) return;
+    if (!_pengaturan.pakaiJadwalOnline && !paksa) return;
+    if (!_pengaturan.adaLokasi) return;
+
+    _sedangSegarkanJadwal = true;
+    _galatJadwal = null;
+    notifyListeners();
+
+    final lokasi = JadwalCacheRepository.kunciLokasi(_pengaturan);
+    try {
+      final ini = hariIni();
+      final bulanan = <String, Map<SholatWajib, DateTime>>{};
+      for (final geser in [0, 1]) {
+        final bulan = DateTime(ini.year, ini.month + geser);
+        bulanan.addAll(
+          await JadwalSholatApi.ambilBulan(
+            lintang: _pengaturan.lintang!,
+            bujur: _pengaturan.bujur!,
+            metode: _pengaturan.metode,
+            mazhab: _pengaturan.mazhab,
+            tahun: bulan.year,
+            bulan: bulan.month,
+          ),
+        );
+      }
+
+      await _jadwalRepo.rapikan(lokasi);
+      await _jadwalRepo.simpan(lokasi, bulanan);
+      _jadwalResmi = bulanan;
+      await _jadwalkanUlang();
+    } on JadwalApiException catch (e) {
+      _galatJadwal = e.pesan;
+    } catch (e) {
+      _galatJadwal = 'Jadwal gagal diperbarui: $e';
+    } finally {
+      _sedangSegarkanJadwal = false;
+      notifyListeners();
+    }
   }
 
   /// Menyiapkan pengingat saat aplikasi dibuka.

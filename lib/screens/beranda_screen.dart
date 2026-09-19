@@ -58,7 +58,11 @@ class BerandaScreen extends StatelessWidget {
               ),
             ),
             if (kontroler.butuhLokasi)
-              const SliverToBoxAdapter(child: _AjakanLokasi()),
+              SliverToBoxAdapter(
+                child: _AjakanLokasi(
+                  perkiraan: kontroler.pengaturan.labelLokasi,
+                ),
+              ),
             if (grup.isEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
@@ -552,7 +556,10 @@ class _SeksiWaktu extends StatelessWidget {
 /// Ajakan menyetel lokasi, muncul selama ada amalan yang menunggu jadwal
 /// sholat tetapi koordinatnya belum pernah diambil.
 class _AjakanLokasi extends StatelessWidget {
-  const _AjakanLokasi();
+  const _AjakanLokasi({this.perkiraan});
+
+  /// Wilayah tebakan yang sedang dipakai, bila sudah ada.
+  final String? perkiraan;
 
   @override
   Widget build(BuildContext context) {
@@ -580,15 +587,20 @@ class _AjakanLokasi extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Jam sholat belum muncul',
+                        perkiraan == null
+                            ? 'Jam sholat belum muncul'
+                            : 'Wilayah masih perkiraan',
                         style: teks.titleSmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Setel lokasi sekali saja, jadwalnya lalu dihitung '
-                        'otomatis tiap hari.',
+                        perkiraan == null
+                            ? 'Pilih wilayahmu sekali saja, jadwalnya lalu '
+                                  'dihitung otomatis tiap hari.'
+                            : 'Jadwal memakai $perkiraan dari zona waktu '
+                                  'perangkat. Ketuk untuk pilih kotamu.',
                         style: teks.bodySmall?.copyWith(
                           color: skema.onSurfaceVariant,
                         ),

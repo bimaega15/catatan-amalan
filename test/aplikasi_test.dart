@@ -2,12 +2,14 @@ import 'package:catatan_amalan/core/tanggal.dart';
 import 'package:catatan_amalan/data/amalan_repository.dart';
 import 'package:catatan_amalan/data/app_database.dart';
 import 'package:catatan_amalan/data/cadangan_repository.dart';
+import 'package:catatan_amalan/data/jadwal_cache_repository.dart';
 import 'package:catatan_amalan/data/pengaturan_repository.dart';
 import 'package:catatan_amalan/data/models/amalan.dart';
 import 'package:catatan_amalan/data/models/pengaturan.dart';
 import 'package:catatan_amalan/main.dart';
 import 'package:catatan_amalan/screens/form_amalan.dart';
 import 'package:catatan_amalan/screens/pengaturan_screen.dart';
+import 'package:catatan_amalan/screens/pilih_wilayah_screen.dart';
 import 'package:catatan_amalan/screens/riwayat_screen.dart';
 import 'package:catatan_amalan/screens/statistik_screen.dart';
 import 'package:catatan_amalan/state/amalan_controller.dart';
@@ -41,12 +43,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  Future<void> pasang(WidgetTester tester) async {
+  /// [zona] menentukan tebakan wilayah awal: +7 jam berarti WIB (Jakarta),
+  /// sedangkan zona di luar Indonesia membuat aplikasi tidak menebak apa pun.
+  Future<void> pasang(WidgetTester tester, {Duration? zona}) async {
     aturLayarPonsel(tester);
     final kontroler = AmalanController(
       repo,
       pengaturanRepo: PengaturanRepository(db),
       cadanganRepo: CadanganRepository(db),
+      jadwalRepo: JadwalCacheRepository(db),
+      zonaPerangkat: zona ?? const Duration(hours: 7),
     );
     await kontroler.muat();
     await tester.pumpWidget(AplikasiCatatanAmalan(kontroler: kontroler));
@@ -291,7 +297,14 @@ void main() {
     expect(find.textContaining(':'), findsOneWidget);
   });
 
-  testWidgets('tanpa lokasi, kartu sholat menampilkan nama waktunya', (
+  /// Semua teks jam "HH:mm" yang sedang tampil.
+  Iterable<String> jamTampil(WidgetTester tester) => tester
+      .widgetList<Text>(find.byType(Text))
+      .map((t) => t.data)
+      .whereType<String>()
+      .where((t) => RegExp(r'^\d{2}:\d{2}$').hasMatch(t));
+
+  testWidgets('di zona WIB, jam sholat langsung tampil sejak awal', (
     tester,
   ) async {
     await tambah(
@@ -299,42 +312,85 @@ void main() {
       kategori: KategoriAmalan.sholat,
       sholat: SholatWajib.subuh,
     );
-    await pasang(tester);
+    await pasang(tester, zona: const Duration(hours: 7));
 
     expect(find.text('Sholat Subuh'), findsOneWidget);
-    // Jamnya belum bisa dihitung, tapi kartunya tetap menyebut jadwalnya.
+    // Wilayah ditebak dari zona waktu, jadi jamnya sudah terhitung.
+    expect(jamTampil(tester), isNotEmpty);
+    // Tapi aplikasi jujur bahwa itu baru perkiraan.
+    expect(find.text('Wilayah masih perkiraan'), findsOneWidget);
+  });
+
+  testWidgets('di luar zona Indonesia, aplikasi tidak menebak wilayah', (
+    tester,
+  ) async {
+    await tambah(
+      nama: 'Sholat Subuh',
+      kategori: KategoriAmalan.sholat,
+      sholat: SholatWajib.subuh,
+    );
+    await pasang(tester, zona: const Duration(hours: 1));
+
+    // Tanpa tebakan, kartunya tetap menyebut jadwalnya, bukan diam saja.
     expect(find.text('Subuh'), findsOneWidget);
-    expect(find.textContaining(':'), findsNothing);
-    // Dan aplikasi menjelaskan cara memunculkan jamnya.
+    expect(jamTampil(tester), isEmpty);
     expect(find.text('Jam sholat belum muncul'), findsOneWidget);
   });
 
-  testWidgets('setelah lokasi disetel, kartu sholat menampilkan jamnya', (
-    tester,
-  ) async {
+  testWidgets('wilayah pilihan sendiri menghilangkan ajakan', (tester) async {
     await tambah(
       nama: 'Sholat Subuh',
       kategori: KategoriAmalan.sholat,
       sholat: SholatWajib.subuh,
     );
-    // Jakarta.
-    await PengaturanRepository(
-      db,
-    ).simpan(const Pengaturan(lintang: -6.2088, bujur: 106.8456));
+    await PengaturanRepository(db).simpan(
+      const Pengaturan(
+        lintang: -6.2088,
+        bujur: 106.8456,
+        labelLokasi: 'Jakarta, DKI Jakarta',
+        sumberLokasi: SumberLokasi.wilayah,
+      ),
+    );
 
     await pasang(tester);
 
-    // Ajakan setel lokasi menghilang begitu koordinatnya ada.
+    expect(find.text('Wilayah masih perkiraan'), findsNothing);
     expect(find.text('Jam sholat belum muncul'), findsNothing);
-    expect(find.text('Subuh'), findsNothing);
-
     // Subuh di Jakarta selalu jatuh di jam 04 atau 05 waktu setempat.
-    final jam = tester
-        .widgetList<Text>(find.byType(Text))
-        .map((t) => t.data)
-        .whereType<String>()
-        .where((t) => RegExp(r'^0[45]:\d{2}$').hasMatch(t));
-    expect(jam, isNotEmpty, reason: 'jam Subuh seharusnya tampil di kartu');
+    expect(
+      jamTampil(tester).where((j) => j.startsWith('04') || j.startsWith('05')),
+      isNotEmpty,
+    );
+  });
+
+  // Catatan: `testWidgets` memalsukan seluruh permintaan HTTP menjadi 400,
+  // sehingga pengambilan jadwal daring selalu gagal di sini. Itu justru
+  // memastikan aplikasi tetap berjalan dengan hitungan di perangkat.
+  testWidgets('memilih kota lewat daftar wilayah memperbarui jadwal', (
+    tester,
+  ) async {
+    await tambah(
+      nama: 'Sholat Maghrib',
+      kategori: KategoriAmalan.sholat,
+      waktu: WaktuAmalan.malam,
+      sholat: SholatWajib.maghrib,
+    );
+    await pasang(tester);
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Pilih kota'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PilihWilayahScreen), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'jayapura');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Jayapura'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Jayapura, Papua'), findsOneWidget);
+    expect(find.text('Wilayah masih perkiraan'), findsNothing);
   });
 
   testWidgets('ajakan lokasi tidak muncul bila tak ada amalan sholat', (
@@ -357,12 +413,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Pengaturan'), findsOneWidget);
-    expect(find.text('Lokasi'), findsOneWidget);
+    expect(find.text('Wilayah'), findsOneWidget);
     expect(find.text('Jadwal sholat'), findsOneWidget);
-    expect(
-      find.text('Setel lokasi lebih dulu untuk melihat jadwalnya.'),
-      findsOneWidget,
-    );
+    expect(find.text('Ambil jadwal resmi saat daring'), findsOneWidget);
 
     await gulirKe(tester, PengaturanScreen, find.text('Ekspor ke Excel'));
     expect(find.text('Ekspor seluruh data (SQL)'), findsOneWidget);

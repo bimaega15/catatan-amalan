@@ -6,9 +6,11 @@ import '../core/viz_palette.dart';
 import '../data/models/amalan.dart';
 import '../data/models/pengaturan.dart';
 import '../services/berkas_service.dart';
+import '../data/wilayah_indonesia.dart';
 import '../services/jadwal_sholat_service.dart';
 import '../state/amalan_controller.dart';
 import '../widgets/umum.dart';
+import 'pilih_wilayah_screen.dart';
 
 /// Lokasi & jadwal sholat, pengingat, serta ekspor/impor data.
 class PengaturanScreen extends StatelessWidget {
@@ -54,8 +56,8 @@ class _SeksiLokasi extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const JudulSeksi(
-            judul: 'Lokasi',
-            keterangan: 'Dipakai menghitung jadwal sholat harian',
+            judul: 'Wilayah',
+            keterangan: 'Acuan perhitungan jadwal sholat',
           ),
           const SizedBox(height: 14),
           if (pengaturan.adaLokasi) ...[
@@ -73,25 +75,35 @@ class _SeksiLokasi extends StatelessWidget {
                 ),
               ],
             ),
-            if (pengaturan.lokasiDiperbaruiPada != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Diperbarui '
-                '${formatTanggalPendek(pengaturan.lokasiDiperbaruiPada!)}',
-                style: teks.bodySmall?.copyWith(color: skema.onSurfaceVariant),
+            const SizedBox(height: 4),
+            Text(
+              pengaturan.lokasiMasihPerkiraan
+                  ? 'Masih perkiraan dari zona waktu perangkat. Pilih kotamu '
+                        'agar jadwalnya tepat.'
+                  : pengaturan.sumberLokasi.label,
+              style: teks.bodySmall?.copyWith(
+                color: pengaturan.lokasiMasihPerkiraan
+                    ? skema.error
+                    : skema.onSurfaceVariant,
               ),
-            ],
+            ),
           ] else
             Text(
-              'Lokasi belum disetel. Tanpa lokasi, jadwal sholat tidak bisa '
-              'dihitung dan amalan sholat wajib tidak akan mengirim pengingat.',
+              'Wilayah belum disetel. Tanpa itu jadwal sholat tidak bisa '
+              'dihitung dan amalan sholat tidak mengirim pengingat.',
               style: teks.bodySmall?.copyWith(color: skema.onSurfaceVariant),
             ),
           const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () => _pilihWilayah(context),
+            icon: const Icon(Icons.location_city_outlined),
+            label: const Text('Pilih kota'),
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
-                child: FilledButton.icon(
+                child: OutlinedButton.icon(
                   onPressed: kontroler.sedangAmbilLokasi
                       ? null
                       : () => _ambilLokasi(context),
@@ -102,17 +114,13 @@ class _SeksiLokasi extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.my_location),
-                  label: Text(
-                    pengaturan.adaLokasi
-                        ? 'Perbarui lokasi'
-                        : 'Deteksi lokasi saya',
-                  ),
+                  label: const Text('Pakai lokasi perangkat'),
                 ),
               ),
               if (pengaturan.adaLokasi) ...[
                 const SizedBox(width: 10),
                 IconButton(
-                  tooltip: 'Hapus lokasi',
+                  tooltip: 'Hapus wilayah',
                   onPressed: kontroler.hapusLokasi,
                   icon: const Icon(Icons.delete_outline),
                 ),
@@ -121,6 +129,22 @@ class _SeksiLokasi extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _pilihWilayah(BuildContext context) async {
+    final pesan = ScaffoldMessenger.of(context);
+    final pilihan = await Navigator.of(context).push<Wilayah>(
+      MaterialPageRoute(
+        builder: (_) =>
+            PilihWilayahScreen(terpilih: kontroler.pengaturan.labelLokasi),
+      ),
+    );
+    if (pilihan == null) return;
+
+    await kontroler.pilihWilayah(pilihan);
+    pesan.showSnackBar(
+      SnackBar(content: Text('Jadwal sholat mengikuti ${pilihan.nama}.')),
     );
   }
 
@@ -160,6 +184,19 @@ class _SeksiJadwal extends StatelessWidget {
           JudulSeksi(
             judul: 'Jadwal sholat',
             keterangan: formatTanggalPanjang(hariIni()),
+            aksi: IconButton(
+              tooltip: 'Perbarui dari server',
+              onPressed: kontroler.sedangSegarkanJadwal
+                  ? null
+                  : () => kontroler.segarkanJadwalOnline(paksa: true),
+              icon: kontroler.sedangSegarkanJadwal
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+            ),
           ),
           const SizedBox(height: 14),
           if (jadwal == null)
@@ -190,9 +227,51 @@ class _SeksiJadwal extends StatelessWidget {
                   ],
                 ),
               ),
+          if (jadwal != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(
+                  jadwal.resmi
+                      ? Icons.verified_outlined
+                      : Icons.calculate_outlined,
+                  size: 14,
+                  color: skema.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    jadwal.resmi
+                        ? 'Diambil dari server ${pengaturan.metode.label}.'
+                        : 'Dihitung di perangkat. Nyalakan jadwal daring untuk '
+                              'memakai angka resmi.',
+                    style: teks.bodySmall?.copyWith(
+                      color: skema.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (kontroler.galatJadwal != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              kontroler.galatJadwal!,
+              style: teks.bodySmall?.copyWith(color: skema.error),
+            ),
+          ],
           const SizedBox(height: 6),
           const Divider(),
-          const SizedBox(height: 10),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: pengaturan.pakaiJadwalOnline,
+            onChanged: kontroler.setJadwalOnline,
+            title: const Text('Ambil jadwal resmi saat daring'),
+            subtitle: const Text(
+              'Sebulan sekali unduh, lalu tersimpan untuk dipakai luring.',
+            ),
+          ),
+          const SizedBox(height: 4),
           Text(
             'Metode perhitungan',
             style: teks.labelLarge?.copyWith(fontWeight: FontWeight.w700),

@@ -7,6 +7,7 @@ import 'core/app_theme.dart';
 import 'data/amalan_repository.dart';
 import 'data/app_database.dart';
 import 'data/cadangan_repository.dart';
+import 'data/jadwal_cache_repository.dart';
 import 'data/pengaturan_repository.dart';
 import 'screens/kerangka_utama.dart';
 import 'state/amalan_controller.dart';
@@ -22,6 +23,7 @@ Future<void> main() async {
     AmalanRepository(db),
     pengaturanRepo: PengaturanRepository(db),
     cadanganRepo: CadanganRepository(db),
+    jadwalRepo: JadwalCacheRepository(db),
   );
   await kontroler.muat();
 

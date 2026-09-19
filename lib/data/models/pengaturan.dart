@@ -1,29 +1,92 @@
 import 'package:flutter/foundation.dart';
 
-/// Metode perhitungan jadwal sholat yang ditawarkan.
+/// Metode perhitungan jadwal sholat.
 ///
-/// Nilai `kunci` sengaja sama dengan nama enum `CalculationMethod` milik paket
-/// adhan, supaya pemetaannya langsung tanpa tabel terjemahan.
+/// Yang membedakan metode adalah sudut matahari di bawah ufuk saat Subuh dan
+/// Isya; sisanya (Dzuhur, Ashar, Maghrib) murni posisi matahari. Sudutnya
+/// ditulis eksplisit di sini, bukan menumpang nama metode paket adhan, supaya
+/// Kemenag bisa dihitung persis: paket adhan tidak menyediakannya.
 enum MetodeSholat {
-  kemenag('muslim_world_league', 'Kemenag / MWL', 'Dipakai luas di Indonesia'),
-  egyptian('egyptian', 'Mesir', 'Egyptian General Authority of Survey'),
-  karachi('karachi', 'Karachi', 'University of Islamic Sciences, Karachi'),
-  ummAlQura('umm_al_qura', 'Umm al-Qura', 'Makkah'),
-  singapura('singapore', 'Singapura', 'MUIS Singapura'),
-  turki('turkey', 'Turki', 'Diyanet İşleri Başkanlığı'),
-  amerikaUtara('north_america', 'Amerika Utara', 'ISNA');
+  kemenag('kemenag', 'Kemenag RI', 'Standar resmi Indonesia', 20, 20.0, 18.0),
+  mwl('mwl', 'Muslim World League', 'Dipakai luas di dunia', 3, 18.0, 17.0),
+  isna('isna', 'ISNA', 'Amerika Utara', 2, 15.0, 15.0),
+  mesir(
+    'egypt',
+    'Mesir',
+    'Egyptian General Authority of Survey',
+    5,
+    19.5,
+    17.5,
+  ),
+  karachi(
+    'karachi',
+    'Karachi',
+    'University of Islamic Sciences',
+    1,
+    18.0,
+    18.0,
+  ),
+  ummAlQura(
+    'umm_al_qura',
+    'Umm al-Qura',
+    'Makkah — Isya 90 menit setelah Maghrib',
+    4,
+    18.5,
+    null,
+    90,
+  );
 
-  const MetodeSholat(this.kunci, this.label, this.keterangan);
+  const MetodeSholat(
+    this.kunci,
+    this.label,
+    this.keterangan,
+    this.kodeAladhan,
+    this.sudutSubuh,
+    this.sudutIsya, [
+    this.jedaIsyaMenit = 0,
+  ]);
 
   final String kunci;
   final String label;
   final String keterangan;
+
+  /// Nomor metode yang sama pada API Aladhan.
+  final int kodeAladhan;
+
+  final double sudutSubuh;
+
+  /// Null bila metodenya memakai [jedaIsyaMenit] alih-alih sudut.
+  final double? sudutIsya;
+  final int jedaIsyaMenit;
 
   static MetodeSholat dariKunci(String? kunci) {
     for (final metode in values) {
       if (metode.kunci == kunci) return metode;
     }
     return MetodeSholat.kemenag;
+  }
+}
+
+/// Dari mana koordinat yang dipakai berasal.
+enum SumberLokasi {
+  /// Ditebak dari zona waktu perangkat; hanya ancar-ancar.
+  perkiraan('Perkiraan dari zona waktu'),
+
+  /// Dipilih sendiri dari daftar wilayah.
+  wilayah('Wilayah pilihanmu'),
+
+  /// Diambil dari GPS perangkat.
+  gps('Lokasi perangkat');
+
+  const SumberLokasi(this.label);
+
+  final String label;
+
+  static SumberLokasi dariNama(String? nama) {
+    for (final sumber in values) {
+      if (sumber.name == nama) return sumber;
+    }
+    return SumberLokasi.perkiraan;
   }
 }
 
@@ -56,6 +119,8 @@ class Pengaturan {
     this.mazhab = MazhabAshar.syafii,
     this.notifikasiAktif = true,
     this.lokasiDiperbaruiPada,
+    this.sumberLokasi = SumberLokasi.perkiraan,
+    this.pakaiJadwalOnline = true,
   });
 
   final double? lintang;
@@ -68,6 +133,15 @@ class Pengaturan {
   final MazhabAshar mazhab;
   final bool notifikasiAktif;
   final DateTime? lokasiDiperbaruiPada;
+  final SumberLokasi sumberLokasi;
+
+  /// Mengambil jadwal resmi dari API bila perangkat sedang daring. Kalau mati
+  /// (atau sedang luring), jadwal dihitung sendiri di perangkat.
+  final bool pakaiJadwalOnline;
+
+  /// Lokasi masih tebakan dari zona waktu, bukan pilihan pengguna.
+  bool get lokasiMasihPerkiraan =>
+      adaLokasi && sumberLokasi == SumberLokasi.perkiraan;
 
   bool get adaLokasi => lintang != null && bujur != null;
 
@@ -79,6 +153,8 @@ class Pengaturan {
     MazhabAshar? mazhab,
     bool? notifikasiAktif,
     DateTime? lokasiDiperbaruiPada,
+    SumberLokasi? sumberLokasi,
+    bool? pakaiJadwalOnline,
     bool hapusLokasi = false,
   }) {
     if (hapusLokasi) {
@@ -86,6 +162,7 @@ class Pengaturan {
         metode: metode ?? this.metode,
         mazhab: mazhab ?? this.mazhab,
         notifikasiAktif: notifikasiAktif ?? this.notifikasiAktif,
+        pakaiJadwalOnline: pakaiJadwalOnline ?? this.pakaiJadwalOnline,
       );
     }
     return Pengaturan(
@@ -96,6 +173,8 @@ class Pengaturan {
       mazhab: mazhab ?? this.mazhab,
       notifikasiAktif: notifikasiAktif ?? this.notifikasiAktif,
       lokasiDiperbaruiPada: lokasiDiperbaruiPada ?? this.lokasiDiperbaruiPada,
+      sumberLokasi: sumberLokasi ?? this.sumberLokasi,
+      pakaiJadwalOnline: pakaiJadwalOnline ?? this.pakaiJadwalOnline,
     );
   }
 
@@ -106,6 +185,8 @@ class Pengaturan {
     'metode': metode.kunci,
     'mazhab': mazhab.kunci,
     'notifikasi_aktif': notifikasiAktif ? '1' : '0',
+    'sumber_lokasi': sumberLokasi.name,
+    'jadwal_online': pakaiJadwalOnline ? '1' : '0',
     if (lokasiDiperbaruiPada != null)
       'lokasi_diperbarui_pada': lokasiDiperbaruiPada!.toIso8601String(),
   };
@@ -119,6 +200,8 @@ class Pengaturan {
       metode: MetodeSholat.dariKunci(nilai['metode']),
       mazhab: MazhabAshar.dariKunci(nilai['mazhab']),
       notifikasiAktif: (nilai['notifikasi_aktif'] ?? '1') == '1',
+      sumberLokasi: SumberLokasi.dariNama(nilai['sumber_lokasi']),
+      pakaiJadwalOnline: (nilai['jadwal_online'] ?? '1') == '1',
       lokasiDiperbaruiPada: diperbarui == null
           ? null
           : DateTime.tryParse(diperbarui),
