@@ -4,6 +4,7 @@ import 'package:catatan_amalan/data/app_database.dart';
 import 'package:catatan_amalan/data/cadangan_repository.dart';
 import 'package:catatan_amalan/data/pengaturan_repository.dart';
 import 'package:catatan_amalan/data/models/amalan.dart';
+import 'package:catatan_amalan/data/models/pengaturan.dart';
 import 'package:catatan_amalan/main.dart';
 import 'package:catatan_amalan/screens/form_amalan.dart';
 import 'package:catatan_amalan/screens/pengaturan_screen.dart';
@@ -290,7 +291,7 @@ void main() {
     expect(find.textContaining(':'), findsOneWidget);
   });
 
-  testWidgets('amalan sholat tanpa lokasi belum menampilkan jam', (
+  testWidgets('tanpa lokasi, kartu sholat menampilkan nama waktunya', (
     tester,
   ) async {
     await tambah(
@@ -301,7 +302,49 @@ void main() {
     await pasang(tester);
 
     expect(find.text('Sholat Subuh'), findsOneWidget);
+    // Jamnya belum bisa dihitung, tapi kartunya tetap menyebut jadwalnya.
+    expect(find.text('Subuh'), findsOneWidget);
     expect(find.textContaining(':'), findsNothing);
+    // Dan aplikasi menjelaskan cara memunculkan jamnya.
+    expect(find.text('Jam sholat belum muncul'), findsOneWidget);
+  });
+
+  testWidgets('setelah lokasi disetel, kartu sholat menampilkan jamnya', (
+    tester,
+  ) async {
+    await tambah(
+      nama: 'Sholat Subuh',
+      kategori: KategoriAmalan.sholat,
+      sholat: SholatWajib.subuh,
+    );
+    // Jakarta.
+    await PengaturanRepository(
+      db,
+    ).simpan(const Pengaturan(lintang: -6.2088, bujur: 106.8456));
+
+    await pasang(tester);
+
+    // Ajakan setel lokasi menghilang begitu koordinatnya ada.
+    expect(find.text('Jam sholat belum muncul'), findsNothing);
+    expect(find.text('Subuh'), findsNothing);
+
+    // Subuh di Jakarta selalu jatuh di jam 04 atau 05 waktu setempat.
+    final jam = tester
+        .widgetList<Text>(find.byType(Text))
+        .map((t) => t.data)
+        .whereType<String>()
+        .where((t) => RegExp(r'^0[45]:\d{2}$').hasMatch(t));
+    expect(jam, isNotEmpty, reason: 'jam Subuh seharusnya tampil di kartu');
+  });
+
+  testWidgets('ajakan lokasi tidak muncul bila tak ada amalan sholat', (
+    tester,
+  ) async {
+    await tambah(nama: 'Dzikir Pagi', menitPengingat: 6 * 60);
+    await pasang(tester);
+
+    expect(find.text('Jam sholat belum muncul'), findsNothing);
+    expect(find.text('06:00'), findsOneWidget);
   });
 
   testWidgets('halaman pengaturan menampilkan seluruh bagiannya', (

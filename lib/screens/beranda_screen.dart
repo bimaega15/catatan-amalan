@@ -57,6 +57,8 @@ class BerandaScreen extends StatelessWidget {
                 ),
               ),
             ),
+            if (kontroler.butuhLokasi)
+              const SliverToBoxAdapter(child: _AjakanLokasi()),
             if (grup.isEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
@@ -429,10 +431,14 @@ class _SeksiWaktu extends StatelessWidget {
 
   /// Jam pengingat hari itu, atau null bila amalan ini tanpa pengingat (atau
   /// ditautkan ke sholat tetapi lokasinya belum disetel).
+  /// Label pengingat pada kartu: jamnya bila sudah bisa dihitung, atau nama
+  /// sholatnya bila lokasi belum disetel — supaya kartunya tetap memberi tahu
+  /// bahwa amalan ini punya jadwal, bukan diam saja.
   String? _jamPengingat(AmalanController kontroler, Amalan amalan) {
     if (!amalan.adaPengingat) return null;
     final waktu = kontroler.waktuPengingat(amalan);
-    return waktu == null ? null : formatJam(waktu);
+    if (waktu != null) return formatJam(waktu);
+    return amalan.sholat?.label;
   }
 
   Future<void> _bukaAksi(BuildContext context, Amalan amalan) async {
@@ -540,5 +546,63 @@ class _SeksiWaktu extends StatelessWidget {
       ),
     );
     if (hasil != null) await kontroler.setCapaian(amalan, hasil);
+  }
+}
+
+/// Ajakan menyetel lokasi, muncul selama ada amalan yang menunggu jadwal
+/// sholat tetapi koordinatnya belum pernah diambil.
+class _AjakanLokasi extends StatelessWidget {
+  const _AjakanLokasi();
+
+  @override
+  Widget build(BuildContext context) {
+    final teks = Theme.of(context).textTheme;
+    final skema = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Material(
+        color: skema.primary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const PengaturanScreen()),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
+            child: Row(
+              children: [
+                Icon(Icons.place_outlined, size: 20, color: skema.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Jam sholat belum muncul',
+                        style: teks.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Setel lokasi sekali saja, jadwalnya lalu dihitung '
+                        'otomatis tiap hari.',
+                        style: teks.bodySmall?.copyWith(
+                          color: skema.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(Icons.chevron_right, size: 20, color: skema.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

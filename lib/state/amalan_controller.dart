@@ -291,6 +291,12 @@ class AmalanController extends ChangeNotifier {
 
   // ------------------------------------------------ jadwal sholat & lokasi
 
+  /// Ada amalan yang menunggu jadwal sholat, tetapi lokasinya belum disetel —
+  /// jam pengingatnya belum bisa dihitung.
+  bool get butuhLokasi =>
+      !_pengaturan.adaLokasi &&
+      _amalan.any((a) => !a.diarsipkan && a.sholat != null);
+
   /// Jadwal sholat untuk [tanggal]; null bila lokasi belum pernah diambil.
   JadwalSholat? jadwalSholat([DateTime? tanggal]) =>
       JadwalSholatService.hitung(_pengaturan, tanggal ?? _tanggalAktif);
