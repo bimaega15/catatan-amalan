@@ -3,6 +3,9 @@ import 'models/amalan.dart';
 
 /// Daftar amalan yang langsung tersedia saat aplikasi pertama kali dibuka.
 /// Pengguna bebas mengubah, menonaktifkan, atau menghapus semuanya.
+///
+/// Lima sholat fardhu ditautkan ke [SholatWajib], jadi jam pengingatnya
+/// mengikuti jadwal sholat harian di lokasi pengguna, bukan jam tetap.
 List<Amalan> amalanBawaan({DateTime? dibuatPada}) {
   final tanggal = tglSaja(dibuatPada ?? DateTime.now());
   var urutan = 0;
@@ -15,6 +18,7 @@ List<Amalan> amalanBawaan({DateTime? dibuatPada}) {
     String satuan = 'kali',
     required String ikon,
     String? catatan,
+    SholatWajib? sholat,
   }) {
     return Amalan(
       nama: nama,
@@ -26,6 +30,7 @@ List<Amalan> amalanBawaan({DateTime? dibuatPada}) {
       ikon: ikon,
       urutan: urutan++,
       dibuatPada: tanggal,
+      sholat: sholat,
     );
   }
 
@@ -35,6 +40,7 @@ List<Amalan> amalanBawaan({DateTime? dibuatPada}) {
       kategori: KategoriAmalan.sholat,
       waktu: WaktuAmalan.pagi,
       ikon: 'subuh',
+      sholat: SholatWajib.subuh,
     ),
     buat(
       nama: 'Dzikir Pagi',
@@ -62,12 +68,14 @@ List<Amalan> amalanBawaan({DateTime? dibuatPada}) {
       kategori: KategoriAmalan.sholat,
       waktu: WaktuAmalan.siang,
       ikon: 'masjid',
+      sholat: SholatWajib.dzuhur,
     ),
     buat(
       nama: 'Sholat Ashar',
       kategori: KategoriAmalan.sholat,
       waktu: WaktuAmalan.sore,
       ikon: 'masjid',
+      sholat: SholatWajib.ashar,
     ),
     buat(
       nama: 'Dzikir Petang',
@@ -81,12 +89,14 @@ List<Amalan> amalanBawaan({DateTime? dibuatPada}) {
       kategori: KategoriAmalan.sholat,
       waktu: WaktuAmalan.malam,
       ikon: 'masjid',
+      sholat: SholatWajib.maghrib,
     ),
     buat(
       nama: 'Sholat Isya',
       kategori: KategoriAmalan.sholat,
       waktu: WaktuAmalan.malam,
       ikon: 'masjid',
+      sholat: SholatWajib.isya,
     ),
     buat(
       nama: 'Sholat Tahajud',

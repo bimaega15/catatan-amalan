@@ -15,6 +15,7 @@ class KartuAmalan extends StatelessWidget {
     required this.amalan,
     required this.jumlah,
     required this.bolehMencatat,
+    this.jamPengingat,
     required this.onKetuk,
     required this.onKurangi,
     required this.onTahan,
@@ -23,6 +24,9 @@ class KartuAmalan extends StatelessWidget {
   final Amalan amalan;
   final int jumlah;
   final bool bolehMencatat;
+
+  /// Jam pengingat efektif hari itu, sudah diformat "HH:mm".
+  final String? jamPengingat;
   final VoidCallback onKetuk;
   final VoidCallback onKurangi;
   final VoidCallback onTahan;
@@ -80,6 +84,7 @@ class KartuAmalan extends StatelessWidget {
                         amalan: amalan,
                         jumlah: jumlah,
                         selesai: _selesai,
+                        jamPengingat: jamPengingat,
                       ),
                       if (amalan.berupaHitungan) ...[
                         const SizedBox(height: 8),
@@ -141,11 +146,13 @@ class _Keterangan extends StatelessWidget {
     required this.amalan,
     required this.jumlah,
     required this.selesai,
+    this.jamPengingat,
   });
 
   final Amalan amalan;
   final int jumlah;
   final bool selesai;
+  final String? jamPengingat;
 
   @override
   Widget build(BuildContext context) {
@@ -160,14 +167,49 @@ class _Keterangan extends StatelessWidget {
                     ? amalan.catatan!
                     : amalan.kategori.label));
 
-    return Text(
-      label,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: teks.bodySmall?.copyWith(
-        color: selesai ? skema.primary : skema.onSurfaceVariant,
-        fontWeight: selesai ? FontWeight.w600 : FontWeight.w400,
-      ),
+    final gaya = teks.bodySmall?.copyWith(
+      color: selesai ? skema.primary : skema.onSurfaceVariant,
+      fontWeight: selesai ? FontWeight.w600 : FontWeight.w400,
+    );
+
+    final jam = jamPengingat;
+    if (jam == null) {
+      return Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: gaya,
+      );
+    }
+
+    return Row(
+      children: [
+        Icon(
+          amalan.sholat != null
+              ? Icons.mosque_outlined
+              : Icons.notifications_active_outlined,
+          size: 12,
+          color: skema.onSurfaceVariant,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          jam,
+          style: teks.bodySmall?.copyWith(
+            color: skema.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        Text('  ·  ', style: gaya),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: gaya,
+          ),
+        ),
+      ],
     );
   }
 }

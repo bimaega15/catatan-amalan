@@ -1,12 +1,19 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
 import '../core/tanggal.dart';
 import '../data/amalan_repository.dart';
+import '../data/cadangan_repository.dart';
 import '../data/models/amalan.dart';
+import '../data/models/pengaturan.dart';
 import '../data/models/statistik.dart';
+import '../data/pengaturan_repository.dart';
 import '../data/statistik_service.dart';
+import '../services/ekspor_excel_service.dart';
+import '../services/jadwal_sholat_service.dart';
+import '../services/notifikasi_service.dart';
 
 /// Pilihan rentang pada halaman statistik.
 enum PeriodeStatistik {
@@ -27,9 +34,19 @@ enum PeriodeStatistik {
 /// tambahan. Setiap perubahan diterapkan ke memori lebih dulu (agar tampilan
 /// responsif) lalu ditulis ke database.
 class AmalanController extends ChangeNotifier {
-  AmalanController(this._repo);
+  AmalanController(
+    this._repo, {
+    required PengaturanRepository pengaturanRepo,
+    required CadanganRepository cadanganRepo,
+    NotifikasiService? notifikasi,
+  }) : _pengaturanRepo = pengaturanRepo,
+       _cadanganRepo = cadanganRepo,
+       _notifikasi = notifikasi ?? NotifikasiService();
 
   final AmalanRepository _repo;
+  final PengaturanRepository _pengaturanRepo;
+  final CadanganRepository _cadanganRepo;
+  final NotifikasiService _notifikasi;
 
   bool _memuat = true;
   Object? _galat;
@@ -38,6 +55,8 @@ class AmalanController extends ChangeNotifier {
   DateTime _tanggalAktif = hariIni();
   PeriodeStatistik _periode = PeriodeStatistik.tigaPuluhHari;
   DateTime _bulanRiwayat = DateTime(hariIni().year, hariIni().month);
+  Pengaturan _pengaturan = const Pengaturan();
+  bool _sedangAmbilLokasi = false;
 
   bool get memuat => _memuat;
   Object? get galat => _galat;
@@ -45,6 +64,9 @@ class AmalanController extends ChangeNotifier {
   DateTime get tanggalAktif => _tanggalAktif;
   PeriodeStatistik get periode => _periode;
   DateTime get bulanRiwayat => _bulanRiwayat;
+  Pengaturan get pengaturan => _pengaturan;
+  bool get sedangAmbilLokasi => _sedangAmbilLokasi;
+  bool get notifikasiDidukung => NotifikasiService.didukung;
 
   List<Amalan> get amalanAktif =>
       _amalan.where((a) => !a.diarsipkan).toList(growable: false);
@@ -66,8 +88,11 @@ class AmalanController extends ChangeNotifier {
     try {
       final amalan = await _repo.muatAmalan();
       final catatan = await _repo.muatSemuaCatatan();
+      final pengaturan = await _pengaturanRepo.muat();
       _amalan = amalan;
       _catatan = catatan;
+      _pengaturan = pengaturan;
+      unawaited(_siapkanPengingat());
     } catch (e) {
       _galat = e;
     } finally {
@@ -264,18 +289,122 @@ class AmalanController extends ChangeNotifier {
     (_catatan[kunci] ??= <int, int>{})[amalanId] = jumlah;
   }
 
+  // ------------------------------------------------ jadwal sholat & lokasi
+
+  /// Jadwal sholat untuk [tanggal]; null bila lokasi belum pernah diambil.
+  JadwalSholat? jadwalSholat([DateTime? tanggal]) =>
+      JadwalSholatService.hitung(_pengaturan, tanggal ?? _tanggalAktif);
+
+  /// Jam pengingat efektif sebuah amalan pada [tanggal].
+  DateTime? waktuPengingat(Amalan amalan, [DateTime? tanggal]) {
+    final hari = tanggal ?? _tanggalAktif;
+    return JadwalSholatService.waktuPengingat(
+      amalan,
+      hari,
+      jadwal: jadwalSholat(hari),
+    );
+  }
+
+  /// Mengambil koordinat perangkat lalu menghitung ulang jadwal sholat.
+  ///
+  /// Melempar [LokasiException] dengan pesan siap tampil bila gagal.
+  Future<void> perbaruiLokasi() async {
+    if (_sedangAmbilLokasi) return;
+    _sedangAmbilLokasi = true;
+    notifyListeners();
+    try {
+      final posisi = await JadwalSholatService.ambilLokasi();
+      await _simpanPengaturan(
+        _pengaturan.copyWith(
+          lintang: posisi.latitude,
+          bujur: posisi.longitude,
+          labelLokasi: JadwalSholatService.labelKoordinat(
+            posisi.latitude,
+            posisi.longitude,
+          ),
+          lokasiDiperbaruiPada: DateTime.now(),
+        ),
+      );
+    } finally {
+      _sedangAmbilLokasi = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> hapusLokasi() =>
+      _simpanPengaturan(_pengaturan.copyWith(hapusLokasi: true));
+
+  Future<void> pilihMetodeSholat(MetodeSholat metode) =>
+      _simpanPengaturan(_pengaturan.copyWith(metode: metode));
+
+  Future<void> pilihMazhab(MazhabAshar mazhab) =>
+      _simpanPengaturan(_pengaturan.copyWith(mazhab: mazhab));
+
+  Future<void> setNotifikasi(bool aktif) async {
+    if (aktif && !await _notifikasi.mintaIzin()) {
+      // Izin ditolak: biarkan sakelar kembali mati agar tidak menjanjikan
+      // pengingat yang tidak akan pernah muncul.
+      return;
+    }
+    await _simpanPengaturan(_pengaturan.copyWith(notifikasiAktif: aktif));
+  }
+
+  Future<void> ujiBunyiNotifikasi() => _notifikasi.ujiBunyi();
+
+  Future<void> _simpanPengaturan(Pengaturan baru) async {
+    _pengaturan = baru;
+    notifyListeners();
+    await _pengaturanRepo.simpan(baru);
+    await _jadwalkanUlang();
+  }
+
+  /// Menyiapkan pengingat saat aplikasi dibuka.
+  ///
+  /// Izin diminta lebih dulu bila pengingat menyala: tanpa itu, di Android 13+
+  /// notifikasi dijadwalkan tetapi tidak pernah muncul. Sistem hanya
+  /// menampilkan dialognya sekali, jadi aman dipanggil tiap kali membuka.
+  Future<void> _siapkanPengingat() async {
+    if (_pengaturan.notifikasiAktif) await _notifikasi.mintaIzin();
+    await _jadwalkanUlang();
+  }
+
+  Future<void> _jadwalkanUlang() => _notifikasi.jadwalkanUlang(
+    amalan: _amalan,
+    aktif: _pengaturan.notifikasiAktif,
+    jadwalSholat: jadwalSholat,
+  );
+
+  // ------------------------------------------------------- ekspor & impor
+
+  /// Menyusun berkas Excel dari seluruh catatan.
+  Uint8List susunExcel() =>
+      EksporExcelService.susun(amalan: _amalan, catatan: _catatan);
+
+  /// Menyusun cadangan lengkap dalam bentuk SQL.
+  Future<String> susunSql() => _cadanganRepo.keSql();
+
+  /// Memulihkan data dari berkas SQL hasil ekspor. Mengembalikan jumlah baris
+  /// yang dipulihkan.
+  Future<int> pulihkanDariSql(String isi) async {
+    final jumlah = await _cadanganRepo.dariSql(isi);
+    await muat();
+    return jumlah;
+  }
+
   // ------------------------------------------------------------ kelola amalan
 
   Future<void> tambahAmalan(Amalan amalan) async {
     final tersimpan = await _repo.tambahAmalan(amalan);
     _amalan = [..._amalan, tersimpan];
     notifyListeners();
+    await _jadwalkanUlang();
   }
 
   Future<void> perbaruiAmalan(Amalan amalan) async {
     await _repo.perbaruiAmalan(amalan);
     _amalan = _amalan.map((a) => a.id == amalan.id ? amalan : a).toList();
     notifyListeners();
+    await _jadwalkanUlang();
   }
 
   Future<void> hapusAmalan(Amalan amalan) async {
@@ -288,6 +417,7 @@ class AmalanController extends ChangeNotifier {
     }
     _catatan.removeWhere((_, hari) => hari.isEmpty);
     notifyListeners();
+    await _jadwalkanUlang();
   }
 
   Future<void> arsipkanAmalan(Amalan amalan) async {
@@ -299,6 +429,7 @@ class AmalanController extends ChangeNotifier {
         .map((a) => a.id == id ? a.copyWith(diarsipkanPada: sejak) : a)
         .toList();
     notifyListeners();
+    await _jadwalkanUlang();
   }
 
   Future<void> aktifkanAmalan(Amalan amalan) async {
@@ -309,6 +440,7 @@ class AmalanController extends ChangeNotifier {
         .map((a) => a.id == id ? a.copyWith(hapusArsip: true) : a)
         .toList();
     notifyListeners();
+    await _jadwalkanUlang();
   }
 
   /// Memindahkan amalan aktif dari posisi [dari] ke [ke] pada daftar kelola.

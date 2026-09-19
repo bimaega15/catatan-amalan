@@ -9,7 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'amalan_bawaan.dart';
 
 const String _namaBerkasDb = 'catatan_amalan.db';
-const int _versiDb = 1;
+const int _versiDb = 2;
 
 /// Pembuka database SQLite lokal. Seluruh data aplikasi tersimpan di perangkat,
 /// tidak ada sinkronisasi ke mana pun.
@@ -47,16 +47,20 @@ class AppDatabase {
   /// sehingga setiap operasi database akan menggantung. Varian tanpa isolate
   /// menyelesaikannya lewat antrean microtask yang tetap diputar oleh waktu
   /// palsu.
+  ///
+  /// Beri [jalur] bila pengujian butuh berkas sungguhan, misalnya untuk menguji
+  /// migrasi yang mengharuskan database ditutup lalu dibuka lagi.
   static Future<Database> dalamMemori({
     bool isiBawaan = false,
     bool tanpaIsolate = false,
+    String? jalur,
   }) async {
     sqfliteFfiInit();
     final factory = tanpaIsolate
         ? databaseFactoryFfiNoIsolate
         : databaseFactoryFfi;
     return factory.openDatabase(
-      inMemoryDatabasePath,
+      jalur ?? inMemoryDatabasePath,
       options: OpenDatabaseOptions(
         version: _versiDb,
         singleInstance: false,
@@ -110,7 +114,9 @@ class AppDatabase {
         ikon TEXT NOT NULL DEFAULT 'ceklis',
         urutan INTEGER NOT NULL DEFAULT 0,
         dibuat_pada TEXT NOT NULL,
-        diarsipkan_pada TEXT
+        diarsipkan_pada TEXT,
+        menit_pengingat INTEGER,
+        sholat TEXT
       )
     ''');
 
@@ -129,6 +135,13 @@ class AppDatabase {
     await db.execute(
       'CREATE INDEX idx_catatan_tanggal ON catatan_harian (tanggal)',
     );
+
+    await db.execute('''
+      CREATE TABLE pengaturan (
+        kunci TEXT PRIMARY KEY,
+        nilai TEXT NOT NULL
+      )
+    ''');
   }
 
   static Future<void> _isiAmalanBawaan(Database db) async {
@@ -144,7 +157,41 @@ class AppDatabase {
     int versiLama,
     int versiBaru,
   ) async {
-    // Belum ada migrasi; disiapkan untuk versi skema berikutnya.
+    // v2: jam pengingat per amalan, tautan ke sholat wajib, dan tabel
+    // pengaturan untuk lokasi serta preferensi notifikasi.
+    if (versiLama < 2) {
+      await db.execute('ALTER TABLE amalan ADD COLUMN menit_pengingat INTEGER');
+      await db.execute('ALTER TABLE amalan ADD COLUMN sholat TEXT');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS pengaturan (
+          kunci TEXT PRIMARY KEY,
+          nilai TEXT NOT NULL
+        )
+      ''');
+      await _tautkanSholatBawaan(db);
+    }
+  }
+
+  /// Menautkan amalan sholat bawaan ke waktu sholatnya, supaya pengguna lama
+  /// ikut mendapat jadwal otomatis tanpa harus menyunting satu per satu.
+  static Future<void> _tautkanSholatBawaan(Database db) async {
+    const tautan = {
+      'Sholat Subuh': 'subuh',
+      'Sholat Dzuhur': 'dzuhur',
+      'Sholat Ashar': 'ashar',
+      'Sholat Maghrib': 'maghrib',
+      'Sholat Isya': 'isya',
+    };
+    final batch = db.batch();
+    tautan.forEach((nama, sholat) {
+      batch.update(
+        'amalan',
+        {'sholat': sholat},
+        where: 'nama = ? AND sholat IS NULL',
+        whereArgs: [nama],
+      );
+    });
+    await batch.commit(noResult: true);
   }
 
   Future<void> tutup() async {

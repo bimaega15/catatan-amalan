@@ -6,6 +6,7 @@ import '../core/ikon_amalan.dart';
 import '../core/tanggal.dart';
 import '../core/viz_palette.dart';
 import '../data/models/amalan.dart';
+import '../services/jadwal_sholat_service.dart';
 import '../state/amalan_controller.dart';
 
 /// Membuka lembar tambah/ubah amalan. Mengembalikan `true` bila tersimpan.
@@ -41,6 +42,8 @@ class _FormAmalanState extends State<FormAmalan> {
   late String _satuan;
   late String _ikon;
   late bool _pakaiHitungan;
+  late SholatWajib? _sholat;
+  late int? _menitPengingat;
 
   bool get _ubah => widget.amalan != null;
 
@@ -58,6 +61,8 @@ class _FormAmalanState extends State<FormAmalan> {
     _waktu = awal?.waktu ?? WaktuAmalan.bebas;
     _satuan = awal?.satuan ?? satuanAmalan.first;
     _ikon = awal?.ikon ?? ikonBawaan;
+    _sholat = awal?.sholat;
+    _menitPengingat = awal?.menitPengingat;
   }
 
   @override
@@ -97,6 +102,10 @@ class _FormAmalanState extends State<FormAmalan> {
               target: target < 1 ? 1 : target,
               satuan: _satuan,
               ikon: _ikon,
+              sholat: _sholat,
+              hapusSholat: _sholat == null,
+              menitPengingat: _sholat == null ? _menitPengingat : null,
+              hapusPengingat: _sholat != null || _menitPengingat == null,
             );
 
     if (_ubah) {
@@ -244,6 +253,22 @@ class _FormAmalanState extends State<FormAmalan> {
                 ),
               ],
               const SizedBox(height: 22),
+              const _Label('Pengingat'),
+              const SizedBox(height: 8),
+              _PengaturPengingat(
+                kategori: _kategori,
+                sholat: _sholat,
+                menit: _menitPengingat,
+                onSholat: (nilai) => setState(() {
+                  _sholat = nilai;
+                  if (nilai != null) _menitPengingat = null;
+                }),
+                onMenit: (nilai) => setState(() {
+                  _menitPengingat = nilai;
+                  if (nilai != null) _sholat = null;
+                }),
+              ),
+              const SizedBox(height: 22),
               const _Label('Ikon'),
               const SizedBox(height: 10),
               _PemilihIkon(
@@ -348,5 +373,147 @@ class _PemilihIkon extends StatelessWidget {
         },
       ),
     );
+  }
+}
+
+/// Pengatur jam pengingat.
+///
+/// Dua pilihan yang saling meniadakan: mengikuti jadwal sholat harian (jamnya
+/// bergeser tiap hari mengikuti lokasi) atau jam tetap. Keduanya boleh kosong
+/// bila amalan ini tidak perlu diingatkan.
+class _PengaturPengingat extends StatelessWidget {
+  const _PengaturPengingat({
+    required this.kategori,
+    required this.sholat,
+    required this.menit,
+    required this.onSholat,
+    required this.onMenit,
+  });
+
+  final KategoriAmalan kategori;
+  final SholatWajib? sholat;
+  final int? menit;
+  final ValueChanged<SholatWajib?> onSholat;
+  final ValueChanged<int?> onMenit;
+
+  @override
+  Widget build(BuildContext context) {
+    final teks = Theme.of(context).textTheme;
+    final skema = Theme.of(context).colorScheme;
+    final kontroler = context.watch<AmalanController>();
+    final jadwal = kontroler.jadwalSholat(hariIni());
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('Tanpa pengingat'),
+              selected: sholat == null && menit == null,
+              onSelected: (_) {
+                onSholat(null);
+                onMenit(null);
+              },
+            ),
+            ChoiceChip(
+              label: Text(
+                menit == null ? 'Jam tetap' : 'Jam ${formatMenit(menit!)}',
+              ),
+              avatar: const Icon(Icons.schedule_outlined, size: 16),
+              selected: menit != null,
+              onSelected: (_) => _pilihJam(context),
+            ),
+            ChoiceChip(
+              label: Text(
+                sholat == null
+                    ? 'Ikut jadwal sholat'
+                    : 'Jadwal ${sholat!.label}',
+              ),
+              avatar: const Icon(Icons.mosque_outlined, size: 16),
+              selected: sholat != null,
+              onSelected: (_) => _pilihSholat(context),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _keterangan(jadwal),
+          style: teks.bodySmall?.copyWith(color: skema.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+
+  String _keterangan(JadwalSholat? jadwal) {
+    final pilihan = sholat;
+    if (pilihan != null) {
+      final jam = jadwal?[pilihan];
+      return jam == null
+          ? 'Jamnya mengikuti jadwal sholat harian. Setel lokasi di '
+                'Pengaturan agar jadwalnya terhitung.'
+          : 'Hari ini ${pilihan.label} pukul ${formatJam(jam)}, '
+                'dan akan bergeser sendiri tiap hari.';
+    }
+    if (menit != null) {
+      return 'Diingatkan tiap hari pukul ${formatMenit(menit!)}.';
+    }
+    return 'Amalan ini tidak akan mengirim notifikasi.';
+  }
+
+  Future<void> _pilihJam(BuildContext context) async {
+    final awal = menit ?? _jamUsulan();
+    final pilihan = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: awal ~/ 60, minute: awal % 60),
+      helpText: 'Jam pengingat',
+    );
+    if (pilihan != null) onMenit(pilihan.hour * 60 + pilihan.minute);
+  }
+
+  /// Usulan jam awal yang masuk akal menurut kategori amalan.
+  int _jamUsulan() => switch (kategori) {
+    KategoriAmalan.quran => 5 * 60,
+    KategoriAmalan.dzikir => 6 * 60,
+    KategoriAmalan.sunnah => 4 * 60 + 30,
+    _ => 20 * 60,
+  };
+
+  Future<void> _pilihSholat(BuildContext context) async {
+    final jadwal = context.read<AmalanController>().jadwalSholat(hariIni());
+    final pilihan = await showModalBottomSheet<SholatWajib>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Ikut jadwal sholat',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                'Jam pengingat dihitung ulang tiap hari dari lokasimu.',
+              ),
+            ),
+            const Divider(),
+            for (final s in SholatWajib.values)
+              ListTile(
+                leading: const Icon(Icons.mosque_outlined),
+                title: Text(s.label),
+                trailing: Text(
+                  jadwal?[s] == null ? '—' : formatJam(jadwal![s]!),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                onTap: () => Navigator.pop(sheet, s),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (pilihan != null) onSholat(pilihan);
   }
 }

@@ -21,6 +21,10 @@ class KelolaScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton.extended(
+        // Kedua halaman menampilkan FAB sekaligus di dalam IndexedStack, jadi
+        // tag Hero-nya harus beda; kalau sama, membuka halaman lain melempar
+        // galat "multiple heroes share the same tag".
+        heroTag: 'fab-kelola',
         onPressed: () => bukaFormAmalan(context),
         icon: const Icon(Icons.add),
         label: const Text('Amalan'),

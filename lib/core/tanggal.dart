@@ -71,3 +71,13 @@ String sapaanWaktu(DateTime waktu) {
   if (jam < 18) return 'Selamat sore';
   return 'Selamat malam';
 }
+
+/// Format jam dari menit sejak tengah malam, misalnya 1290 -> "21:30".
+String formatMenit(int menit) {
+  final jam = (menit ~/ 60) % 24;
+  final sisa = menit % 60;
+  return '${jam.toString().padLeft(2, '0')}:${sisa.toString().padLeft(2, '0')}';
+}
+
+/// Format jam dari sebuah waktu, misalnya "04:32".
+String formatJam(DateTime waktu) => formatMenit(waktu.hour * 60 + waktu.minute);

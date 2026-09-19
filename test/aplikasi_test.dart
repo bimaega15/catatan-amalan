@@ -1,8 +1,12 @@
 import 'package:catatan_amalan/core/tanggal.dart';
 import 'package:catatan_amalan/data/amalan_repository.dart';
 import 'package:catatan_amalan/data/app_database.dart';
+import 'package:catatan_amalan/data/cadangan_repository.dart';
+import 'package:catatan_amalan/data/pengaturan_repository.dart';
 import 'package:catatan_amalan/data/models/amalan.dart';
 import 'package:catatan_amalan/main.dart';
+import 'package:catatan_amalan/screens/form_amalan.dart';
+import 'package:catatan_amalan/screens/pengaturan_screen.dart';
 import 'package:catatan_amalan/screens/riwayat_screen.dart';
 import 'package:catatan_amalan/screens/statistik_screen.dart';
 import 'package:catatan_amalan/state/amalan_controller.dart';
@@ -38,7 +42,11 @@ void main() {
 
   Future<void> pasang(WidgetTester tester) async {
     aturLayarPonsel(tester);
-    final kontroler = AmalanController(repo);
+    final kontroler = AmalanController(
+      repo,
+      pengaturanRepo: PengaturanRepository(db),
+      cadanganRepo: CadanganRepository(db),
+    );
     await kontroler.muat();
     await tester.pumpWidget(AplikasiCatatanAmalan(kontroler: kontroler));
     await tester.pumpAndSettle();
@@ -67,6 +75,8 @@ void main() {
     String satuan = 'kali',
     WaktuAmalan waktu = WaktuAmalan.pagi,
     KategoriAmalan kategori = KategoriAmalan.dzikir,
+    int? menitPengingat,
+    SholatWajib? sholat,
   }) => repo.tambahAmalan(
     Amalan(
       nama: nama,
@@ -75,6 +85,8 @@ void main() {
       target: target,
       satuan: satuan,
       dibuatPada: hariIni().subtract(const Duration(days: 30)),
+      menitPengingat: menitPengingat,
+      sholat: sholat,
     ),
   );
 
@@ -266,5 +278,72 @@ void main() {
 
     expect(find.text('Diarsipkan'), findsOneWidget);
     expect((await repo.muatAmalan()).single.diarsipkan, isTrue);
+  });
+
+  testWidgets('kartu amalan menampilkan jam pengingat', (tester) async {
+    await tambah(nama: 'Belajar Bahasa Inggris', menitPengingat: 21 * 60 + 30);
+    await tambah(nama: 'Sedekah', waktu: WaktuAmalan.bebas);
+    await pasang(tester);
+
+    expect(find.text('21:30'), findsOneWidget);
+    // Amalan tanpa pengingat tidak menampilkan jam apa pun.
+    expect(find.textContaining(':'), findsOneWidget);
+  });
+
+  testWidgets('amalan sholat tanpa lokasi belum menampilkan jam', (
+    tester,
+  ) async {
+    await tambah(
+      nama: 'Sholat Subuh',
+      kategori: KategoriAmalan.sholat,
+      sholat: SholatWajib.subuh,
+    );
+    await pasang(tester);
+
+    expect(find.text('Sholat Subuh'), findsOneWidget);
+    expect(find.textContaining(':'), findsNothing);
+  });
+
+  testWidgets('halaman pengaturan menampilkan seluruh bagiannya', (
+    tester,
+  ) async {
+    await tambah(nama: 'Dzikir Pagi', menitPengingat: 6 * 60);
+    await pasang(tester);
+
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pengaturan'), findsOneWidget);
+    expect(find.text('Lokasi'), findsOneWidget);
+    expect(find.text('Jadwal sholat'), findsOneWidget);
+    expect(
+      find.text('Setel lokasi lebih dulu untuk melihat jadwalnya.'),
+      findsOneWidget,
+    );
+
+    await gulirKe(tester, PengaturanScreen, find.text('Ekspor ke Excel'));
+    expect(find.text('Ekspor seluruh data (SQL)'), findsOneWidget);
+    expect(find.text('Impor dari berkas SQL'), findsOneWidget);
+  });
+
+  testWidgets('formulir menawarkan pengingat jam tetap dan jadwal sholat', (
+    tester,
+  ) async {
+    await pasang(tester);
+
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Amalan'));
+    await tester.pumpAndSettle();
+
+    await gulirKe(tester, FormAmalan, find.text('Pengingat'));
+    expect(find.widgetWithText(ChoiceChip, 'Tanpa pengingat'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'Jam tetap'), findsOneWidget);
+    expect(
+      find.widgetWithText(ChoiceChip, 'Ikut jadwal sholat'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Amalan ini tidak akan mengirim notifikasi.'),
+      findsOneWidget,
+    );
   });
 }

@@ -12,6 +12,7 @@ import '../widgets/meter_capaian.dart';
 import '../widgets/pemilih_tanggal.dart';
 import '../widgets/umum.dart';
 import 'form_amalan.dart';
+import 'pengaturan_screen.dart';
 
 /// Daftar amalan untuk satu hari, lengkap dengan ringkasan capaiannya.
 class BerandaScreen extends StatelessWidget {
@@ -26,6 +27,10 @@ class BerandaScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton.extended(
+        // Kedua halaman menampilkan FAB sekaligus di dalam IndexedStack, jadi
+        // tag Hero-nya harus beda; kalau sama, membuka halaman lain melempar
+        // galat "multiple heroes share the same tag".
+        heroTag: 'fab-beranda',
         onPressed: () => bukaFormAmalan(context),
         icon: const Icon(Icons.add),
         label: const Text('Amalan'),
@@ -124,6 +129,13 @@ class _Kepala extends StatelessWidget {
             tooltip: 'Pilih tanggal',
             onPressed: () => _pilihTanggal(context, kontroler),
             icon: const Icon(Icons.event_outlined),
+          ),
+          IconButton(
+            tooltip: 'Pengaturan',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PengaturanScreen()),
+            ),
+            icon: const Icon(Icons.settings_outlined),
           ),
           _MenuHari(kontroler: kontroler),
         ],
@@ -402,6 +414,7 @@ class _SeksiWaktu extends StatelessWidget {
                 amalan: amalan,
                 jumlah: kontroler.capaian(amalan),
                 bolehMencatat: kontroler.bolehMencatat,
+                jamPengingat: _jamPengingat(kontroler, amalan),
                 onKetuk: () => kontroler.ketukAmalan(amalan),
                 onKurangi: () => kontroler.kurangiAmalan(amalan),
                 onTahan: () => _bukaAksi(context, amalan),
@@ -412,6 +425,14 @@ class _SeksiWaktu extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Jam pengingat hari itu, atau null bila amalan ini tanpa pengingat (atau
+  /// ditautkan ke sholat tetapi lokasinya belum disetel).
+  String? _jamPengingat(AmalanController kontroler, Amalan amalan) {
+    if (!amalan.adaPengingat) return null;
+    final waktu = kontroler.waktuPengingat(amalan);
+    return waktu == null ? null : formatJam(waktu);
   }
 
   Future<void> _bukaAksi(BuildContext context, Amalan amalan) async {

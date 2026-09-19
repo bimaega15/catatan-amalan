@@ -44,6 +44,29 @@ enum WaktuAmalan {
       values.firstWhere((w) => w.name == nama, orElse: () => WaktuAmalan.bebas);
 }
 
+/// Lima sholat fardhu. Amalan yang ditautkan ke salah satunya memakai jam dari
+/// jadwal sholat harian, bukan jam tetap, karena waktunya bergeser tiap hari
+/// mengikuti posisi matahari di lokasi pengguna.
+enum SholatWajib {
+  subuh('Subuh'),
+  dzuhur('Dzuhur'),
+  ashar('Ashar'),
+  maghrib('Maghrib'),
+  isya('Isya');
+
+  const SholatWajib(this.label);
+
+  final String label;
+
+  static SholatWajib? dariNama(String? nama) {
+    if (nama == null) return null;
+    for (final sholat in values) {
+      if (sholat.name == nama) return sholat;
+    }
+    return null;
+  }
+}
+
 /// Satu jenis amalan yang dipantau, misalnya "Dzikir Pagi" atau "Istighfar".
 @immutable
 class Amalan {
@@ -59,6 +82,8 @@ class Amalan {
     this.urutan = 0,
     required this.dibuatPada,
     this.diarsipkanPada,
+    this.menitPengingat,
+    this.sholat,
   });
 
   final int? id;
@@ -77,6 +102,16 @@ class Amalan {
   /// Tanggal amalan dinonaktifkan. Amalan yang diarsipkan tidak lagi dihitung
   /// pada hari-hari setelah tanggal ini, tetapi riwayat lamanya tetap utuh.
   final DateTime? diarsipkanPada;
+
+  /// Jam pengingat sebagai menit sejak tengah malam, atau null bila amalan ini
+  /// tidak perlu diingatkan. Diabaikan bila [sholat] terisi.
+  final int? menitPengingat;
+
+  /// Bila terisi, jam pengingat diambil dari jadwal sholat hari itu.
+  final SholatWajib? sholat;
+
+  /// Amalan ini punya pengingat, entah dari jam tetap atau jadwal sholat.
+  bool get adaPengingat => sholat != null || menitPengingat != null;
 
   bool get diarsipkan => diarsipkanPada != null;
 
@@ -117,6 +152,10 @@ class Amalan {
     DateTime? dibuatPada,
     DateTime? diarsipkanPada,
     bool hapusArsip = false,
+    int? menitPengingat,
+    bool hapusPengingat = false,
+    SholatWajib? sholat,
+    bool hapusSholat = false,
   }) {
     return Amalan(
       id: id ?? this.id,
@@ -132,6 +171,10 @@ class Amalan {
       diarsipkanPada: hapusArsip
           ? null
           : (diarsipkanPada ?? this.diarsipkanPada),
+      menitPengingat: hapusPengingat
+          ? null
+          : (menitPengingat ?? this.menitPengingat),
+      sholat: hapusSholat ? null : (sholat ?? this.sholat),
     );
   }
 
@@ -149,6 +192,8 @@ class Amalan {
     'diarsipkan_pada': diarsipkanPada == null
         ? null
         : kunciTanggal(diarsipkanPada!),
+    'menit_pengingat': menitPengingat,
+    'sholat': sholat?.name,
   };
 
   factory Amalan.fromMap(Map<String, Object?> baris) {
@@ -165,6 +210,8 @@ class Amalan {
       urutan: (baris['urutan'] as int?) ?? 0,
       dibuatPada: tanggalDariKunci(baris['dibuat_pada'] as String),
       diarsipkanPada: arsip == null ? null : tanggalDariKunci(arsip),
+      menitPengingat: baris['menit_pengingat'] as int?,
+      sholat: SholatWajib.dariNama(baris['sholat'] as String?),
     );
   }
 
@@ -180,7 +227,9 @@ class Amalan {
       other.satuan == satuan &&
       other.ikon == ikon &&
       other.urutan == urutan &&
-      other.diarsipkanPada == diarsipkanPada;
+      other.diarsipkanPada == diarsipkanPada &&
+      other.menitPengingat == menitPengingat &&
+      other.sholat == sholat;
 
   @override
   int get hashCode => Object.hash(
@@ -194,6 +243,8 @@ class Amalan {
     ikon,
     urutan,
     diarsipkanPada,
+    menitPengingat,
+    sholat,
   );
 }
 

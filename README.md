@@ -10,14 +10,21 @@ SQLite; tidak ada akun, server, atau sinkronisasi.
   kapan saja). Ketuk untuk menandai selesai.
 - **Amalan berupa hitungan**, misalnya istighfar 100 kali atau tilawah 5
   halaman. Capaian sebagian ikut dihitung.
-- **Amalan buatan sendiri**: nama, kategori, waktu, target, satuan, ikon, dan
-  catatan. Urutannya bisa digeser sesuka hati.
+- **Amalan buatan sendiri**: nama, kategori, waktu, target, satuan, ikon, jam
+  pengingat, dan catatan. Urutannya bisa digeser sesuka hati.
+- **Jadwal sholat otomatis** dari koordinat perangkat. Lima sholat fardhu
+  memakai jam yang dihitung ulang tiap hari; amalan lain boleh memakai jam
+  tetap atau tanpa jam sama sekali.
+- **Pengingat** berupa notifikasi lokal yang berbunyi tiga bip pendek lalu
+  berhenti.
 - **Mengisi hari yang terlewat** lewat deretan tanggal atau pemilih tanggal.
 - **Halaman performa**: rata-rata capaian, predikat, hari beruntun, grafik
   capaian harian, tren, porsi per kategori, dan konsistensi tiap amalan.
 - **Riwayat bulanan** sebagai kalender berwarna, bisa dibuka per hari.
 - **Arsip**: amalan yang dihentikan berhenti dihitung sejak tanggal
   pengarsipan, tanpa mengubah riwayat lama.
+- **Ekspor Excel** (daftar amalan, catatan harian, rekap), **ekspor cadangan
+  SQL**, dan **impor kembali dari berkas SQL**.
 
 ## Cara menjalankan
 
@@ -33,8 +40,9 @@ flutter run -d windows # desktop
 | --- | --- |
 | `lib/core/` | tema, katalog ikon, utilitas tanggal, palet grafik |
 | `lib/data/` | model, skema SQLite, repository, perhitungan statistik |
+| `lib/services/` | jadwal sholat, notifikasi, ekspor Excel, berkas |
 | `lib/state/` | `AmalanController`, satu-satunya sumber status aplikasi |
-| `lib/screens/` | empat halaman utama dan formulir amalan |
+| `lib/screens/` | lima halaman dan formulir amalan |
 | `lib/widgets/` | kartu, meter, grafik, kalender |
 
 Catatan harian dimuat sekali ke memori sebagai peta
@@ -50,19 +58,71 @@ dipilih ketimbang membagi total satuan, karena satu amalan bertarget 100 akan
 menenggelamkan sebelas amalan bertarget 1. Sebuah hari dihitung menjaga
 runtutan (*streak*) bila capaiannya minimal 80%.
 
+### Jadwal sholat
+
+Waktu sholat dihitung di perangkat dengan paket `adhan` dari koordinat yang
+diambil `geolocator`; koordinatnya disimpan lokal dan tidak dikirim ke mana
+pun. Metode perhitungan (bawaan: Kemenag/MWL) dan mazhab penentu Ashar bisa
+diganti di Pengaturan. Jadwal sengaja tidak disimpan ke database — hitungannya
+murni dan cepat, jadi lebih baik dihitung ulang daripada menyimpan data yang
+basi begitu pengguna berpindah kota.
+
+### Pengingat
+
+Bunyinya `android/app/src/main/res/raw/beep3.wav`, dibangkitkan sebagai tiga
+nada 880 Hz masing-masing 140 ms lalu berhenti. Suara sebuah saluran notifikasi
+Android tidak bisa diubah setelah saluran dibuat, jadi id salurannya
+bernomor versi (`pengingat_amalan_v1`); kalau bunyinya diganti, naikkan
+`_versiSaluran` di `lib/services/notifikasi_service.dart` agar saluran baru
+dibuat.
+
+Dua hal yang perlu diketahui:
+
+- **Amalan berjam tetap** dijadwalkan sekali sebagai pengulangan harian yang
+  diurus sistem. **Amalan yang mengikuti jadwal sholat** jamnya bergeser tiap
+  hari, jadi dijadwalkan tujuh hari ke depan dan dipasang ulang setiap aplikasi
+  dibuka. Kalau aplikasi tidak dibuka lebih dari sepekan, pengingat sholat
+  berhenti sampai aplikasi dibuka lagi.
+- **iOS** belum memakai bunyi tiga bip: berkas suaranya harus didaftarkan ke
+  bundel lewat Xcode. Sebelum itu, iOS memakai bunyi notifikasi bawaan.
+
+### Ekspor dan impor
+
+Ekspor SQL menghasilkan berkas teks biasa berisi `CREATE TABLE` dan `INSERT`,
+jadi bisa dibaca dan dipakai alat lain. Saat mengimpor, hanya pernyataan
+`INSERT` ke tabel yang dikenal yang dijalankan — struktur tabel tetap milik
+aplikasi, sehingga berkas dari versi lama tetap bisa dipulihkan dan berkas
+asing tidak bisa menjalankan perintah sembarangan. Seluruh impor berjalan dalam
+satu transaksi: bila ada satu baris yang gagal, data lama tetap utuh.
+
+Di ponsel, berkas hasil ekspor diserahkan ke lembar berbagi; di desktop dipakai
+dialog simpan biasa.
+
 ## Pengujian
 
 ```bash
 flutter test
 ```
 
-Mencakup perhitungan statistik (murni), repository di atas SQLite dalam memori,
-dan uji rakitan yang menelusuri keempat halaman.
+Mencakup perhitungan statistik dan jadwal sholat (murni), repository serta
+migrasi skema di atas SQLite, ekspor Excel, ekspor/impor SQL, dan uji rakitan
+yang menelusuri seluruh halaman.
 
-## Catatan dependensi
+## Catatan platform
 
-`sqflite_common_ffi` sengaja ditahan di bawah versi 2.4. Versi tersebut menarik
-`sqlite3` 3.x yang membangun SQLite lewat *hooks* (native assets); hooks belum
-dijalankan oleh `flutter build windows`, sehingga aplikasi gagal memuat
-`sqlite3.dll`. Pasangan `sqlite3` 2.x + `sqlite3_flutter_libs` 0.5.x membundel
-DLL tersebut lewat plugin, tanpa flag percobaan.
+**Android.** Proyek memakai AGP 8.11.1, Gradle 8.13, `compileSdk` 36, dan
+`minSdk` 24 — semuanya syarat `flutter_local_notifications` 22. Desugaring
+pustaka inti dinyalakan agar penjadwalan tetap bekerja di Android lama.
+`AndroidManifest.xml` memuat izin notifikasi, alarm tepat waktu, lokasi, serta
+penerima yang memasang ulang jadwal setelah perangkat dinyalakan ulang.
+
+**Desktop.** Notifikasi dilewati diam-diam (fitur ini memang hanya untuk
+ponsel), sedangkan sisanya berjalan penuh sehingga aplikasi tetap enak dipakai
+untuk pengembangan.
+
+**Dependensi SQLite.** `sqflite_common_ffi` sengaja ditahan di bawah versi 2.4.
+Versi tersebut menarik `sqlite3` 3.x yang membangun SQLite lewat *hooks*
+(native assets); hooks belum dijalankan oleh `flutter build windows`, sehingga
+aplikasi gagal memuat `sqlite3.dll`. Pasangan `sqlite3` 2.x +
+`sqlite3_flutter_libs` 0.5.x membundel DLL tersebut lewat plugin, tanpa flag
+percobaan.

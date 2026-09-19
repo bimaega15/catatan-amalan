@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import 'core/app_theme.dart';
 import 'data/amalan_repository.dart';
 import 'data/app_database.dart';
+import 'data/cadangan_repository.dart';
+import 'data/pengaturan_repository.dart';
 import 'screens/kerangka_utama.dart';
 import 'state/amalan_controller.dart';
 
@@ -16,7 +18,11 @@ Future<void> main() async {
   final db = await AppDatabase.instance.database;
   // Catatan dibaca sebelum frame pertama supaya aplikasi tidak dibuka dengan
   // kedipan pemuatan; isinya hanya beberapa ribu baris dari disk lokal.
-  final kontroler = AmalanController(AmalanRepository(db));
+  final kontroler = AmalanController(
+    AmalanRepository(db),
+    pengaturanRepo: PengaturanRepository(db),
+    cadanganRepo: CadanganRepository(db),
+  );
   await kontroler.muat();
 
   runApp(AplikasiCatatanAmalan(kontroler: kontroler));
