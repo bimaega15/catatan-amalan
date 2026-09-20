@@ -5,6 +5,16 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// Kredensial penandatanganan dibaca dari android/key.properties, yang sengaja
+// tidak ikut ter-commit. Tanpa berkas itu build rilis tetap jalan memakai kunci
+// debug, disertai peringatan -- Play Store menolak APK bertanda tangan debug,
+// jadi kekeliruan itu ketahuan sebelum sempat dirilis.
+def berkasKunci = rootProject.file("key.properties")
+def kunci = new Properties()
+if (berkasKunci.exists()) {
+    berkasKunci.withInputStream { kunci.load(it) }
+}
+
 android {
     namespace = "com.example.catatan_amalan"
     // flutter_local_notifications 22 mensyaratkan compileSdk 36.
@@ -32,10 +42,26 @@ android {
         multiDexEnabled = true
     }
 
+    signingConfigs {
+        release {
+            if (berkasKunci.exists()) {
+                storeFile = file(kunci["storeFile"])
+                storePassword = kunci["storePassword"]
+                keyAlias = kunci["keyAlias"]
+                keyPassword = kunci["keyPassword"]
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: ganti dengan signing config sendiri sebelum rilis.
-            signingConfig = signingConfigs.debug
+            if (berkasKunci.exists()) {
+                signingConfig = signingConfigs.release
+            } else {
+                logger.warn("PERINGATAN: android/key.properties tidak ditemukan; "
+                    + "build rilis ditandatangani kunci debug dan akan ditolak Play Store.")
+                signingConfig = signingConfigs.debug
+            }
         }
     }
 }
