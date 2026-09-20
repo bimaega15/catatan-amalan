@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show Color;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -51,7 +52,10 @@ class NotifikasiService {
 
     await _plugin.initialize(
       settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        // Siluet putih berlatar transparan. Ikon peluncur tidak bisa dipakai
+        // di bilah status: sejak Android 5 ikon notifikasi ditimpa satu warna,
+        // sehingga ikon berwarna muncul sebagai kotak abu-abu.
+        android: AndroidInitializationSettings('@drawable/ic_notifikasi'),
         iOS: DarwinInitializationSettings(
           requestAlertPermission: false,
           requestBadgePermission: false,
@@ -222,6 +226,8 @@ class NotifikasiService {
       sound: RawResourceAndroidNotificationSound(_namaBunyi),
       playSound: true,
       category: AndroidNotificationCategory.reminder,
+      icon: '@drawable/ic_notifikasi',
+      color: Color(0xFF0E8A6B),
     ),
     iOS: DarwinNotificationDetails(presentSound: true),
   );
